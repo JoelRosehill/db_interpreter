@@ -348,48 +348,189 @@ class DatabaseService:
                 buffer.write("Your database is empty. Create a table first!\n")
                 return buffer.getvalue()
 
+            relationship_lines = []
+
             for table_name in tables:
                 buffer.write(f"TABLE: {table_name}\n")
+
                 self.cursor.execute(f"PRAGMA table_info({quote_identifier(table_name)});")
-                for column in self.cursor.fetchall():
-                    buffer.write(f"  - {column[1]} ({column[2]})\n")
+                columns = self.cursor.fetchall()
+
+                primary_key_columns = [col[1] for col in sorted(columns, key=lambda col: col[5]) if col[5] > 0]
+
+                if primary_key_columns:
+                    buffer.write(f"  Primary Key: {', '.join(primary_key_columns)}\n")
+                else:
+                    buffer.write("  Primary Key: (none)\n")
+
+                buffer.write("  Columns:\n")
+                for column in columns:
+                    _, column_name, column_type, not_null, default_value, pk_order = column
+
+                    tags = []
+                    if pk_order > 0:
+                        if len(primary_key_columns) > 1:
+                            tags.append(f"PK#{pk_order}")
+                        else:
+                            tags.append("PK")
+                    if not_null:
+                        tags.append("NOT NULL")
+                    if default_value is not None:
+                        tags.append(f"DEFAULT {default_value}")
+
+                    extra = f" [{' | '.join(tags)}]" if tags else ""
+                    buffer.write(f"    - {column_name} ({column_type}){extra}\n")
+
+                self.cursor.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)});")
+                fk_rows = self.cursor.fetchall()
+
+                if not fk_rows:
+                    buffer.write("  Foreign Keys: (none)\n")
+                else:
+                    buffer.write("  Foreign Keys:\n")
+
+                    foreign_key_groups = {}
+                    for row in fk_rows:
+                        fk_id, seq, target_table, source_col, target_col, on_update, on_delete, match_rule = row
+                        foreign_key_groups.setdefault(fk_id, []).append(
+                            {
+                                "seq": seq,
+                                "target_table": target_table,
+                                "source_col": source_col,
+                                "target_col": target_col,
+                                "on_update": on_update,
+                                "on_delete": on_delete,
+                                "match_rule": match_rule,
+                            }
+                        )
+
+                    for fk_id in sorted(foreign_key_groups):
+                        group_rows = sorted(foreign_key_groups[fk_id], key=lambda item: item["seq"])
+                        target_table = group_rows[0]["target_table"]
+                        source_cols = [item["source_col"] for item in group_rows]
+                        target_cols = [item["target_col"] for item in group_rows]
+
+                        source_label = ", ".join(source_cols)
+                        target_label = ", ".join(target_cols)
+                        on_update = group_rows[0]["on_update"]
+                        on_delete = group_rows[0]["on_delete"]
+                        match_rule = group_rows[0]["match_rule"]
+
+                        buffer.write(
+                            f"    - ({source_label}) -> {target_table}.({target_label}) "
+                            f"[ON UPDATE {on_update}, ON DELETE {on_delete}, MATCH {match_rule}]\n"
+                        )
+
+                        relationship_lines.append(
+                            f"{table_name}.({source_label}) -> {target_table}.({target_label})"
+                        )
+
                 buffer.write("\n")
 
+            buffer.write("--- PK/FK CONNECTIONS ---\n")
+            if relationship_lines:
+                for line in relationship_lines:
+                    buffer.write(f"- {line}\n")
+            else:
+                buffer.write("No foreign key relationships found.\n")
+
             return buffer.getvalue()
+
+    def _get_table_definitions(self):
+        self.cursor.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL ORDER BY name;"
+        )
+        table_definitions = {}
+        for table_name, create_sql in self.cursor.fetchall():
+            if table_name == "sqlite_sequence":
+                continue
+            table_definitions[table_name] = create_sql
+        return table_definitions
+
+    def _sort_tables_by_fk_dependencies(self, table_names):
+        table_set = set(table_names)
+        dependencies = {}
+
+        for table_name in table_names:
+            self.cursor.execute(f"PRAGMA foreign_key_list({quote_identifier(table_name)});")
+            fk_rows = self.cursor.fetchall()
+
+            referenced_tables = {
+                row[2]
+                for row in fk_rows
+                if row[2] in table_set and row[2] != table_name
+            }
+            dependencies[table_name] = referenced_tables
+
+        remaining = {name: set(values) for name, values in dependencies.items()}
+
+        ordered = []
+        ready = sorted(name for name in table_names if not remaining[name])
+
+        while ready:
+            current = ready.pop(0)
+            ordered.append(current)
+
+            for candidate in table_names:
+                if current in remaining[candidate]:
+                    remaining[candidate].remove(current)
+                    if not remaining[candidate] and candidate not in ordered and candidate not in ready:
+                        ready.append(candidate)
+            ready.sort()
+
+        unresolved = sorted(name for name in table_names if name not in ordered)
+        return ordered + unresolved, unresolved
 
     def generate_sql_code(self):
         with self._lock:
             buffer = io.StringIO()
-            buffer.write("--- GENERATED SQL CODE ---\n\n")
+            buffer.write("-- GENERATED SQL CODE --\n\n")
 
-            self.cursor.execute(
-                "SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL ORDER BY name;"
-            )
-            tables = self.cursor.fetchall()
+            table_definitions = self._get_table_definitions()
+            if not table_definitions:
+                buffer.write("-- No tables found.\n")
+                return buffer.getvalue()
 
-            for table_name, create_sql in tables:
-                if table_name == "sqlite_sequence":
-                    continue
+            table_names = sorted(table_definitions)
+            ordered_tables, unresolved = self._sort_tables_by_fk_dependencies(table_names)
 
+            if unresolved:
+                unresolved_list = ", ".join(unresolved)
+                buffer.write(f"-- Cyclic FK dependencies detected for: {unresolved_list}\n")
+                buffer.write("-- Output remains loadable by temporarily disabling FK enforcement.\n\n")
+
+            buffer.write("PRAGMA foreign_keys = OFF;\n")
+            buffer.write("BEGIN TRANSACTION;\n\n")
+
+            buffer.write("-- TABLE DEFINITIONS\n")
+            for table_name in ordered_tables:
+                create_sql = table_definitions[table_name]
                 create_statement = create_sql.strip()
                 if not create_statement.endswith(";"):
                     create_statement += ";"
-                buffer.write(create_statement + "\n")
+                buffer.write(create_statement + "\n\n")
 
+            buffer.write("-- TABLE DATA\n")
+            for table_name in ordered_tables:
                 quoted_table = quote_identifier(table_name)
                 self.cursor.execute(f"SELECT * FROM {quoted_table}")
                 rows = self.cursor.fetchall()
 
-                if rows:
-                    self.cursor.execute(f"PRAGMA table_info({quoted_table});")
-                    columns = [col[1] for col in self.cursor.fetchall()]
-                    quoted_columns = ", ".join(quote_identifier(col) for col in columns)
+                if not rows:
+                    continue
 
-                    for row in rows:
-                        values = ", ".join(sql_literal(value) for value in row)
-                        buffer.write(f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({values});\n")
+                self.cursor.execute(f"PRAGMA table_info({quoted_table});")
+                columns = [col[1] for col in self.cursor.fetchall()]
+                quoted_columns = ", ".join(quote_identifier(col) for col in columns)
+
+                for row in rows:
+                    values = ", ".join(sql_literal(value) for value in row)
+                    buffer.write(f"INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({values});\n")
 
                 buffer.write("\n")
+
+            buffer.write("COMMIT;\n")
+            buffer.write("PRAGMA foreign_keys = ON;\n")
 
             return buffer.getvalue()
 
