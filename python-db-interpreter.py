@@ -12,20 +12,17 @@ MODE_SQL = "SQL"
 MODE_NOSQL = "NoSQL"
 MODE_PYMYSQL = "PyMySQL"
 
-current_mode = MODE_SQL
-last_select_results = []  # Stores last SELECT query results for export
-
 # ---------------------------------------------------------
 # DATABASE SETUP
 # ---------------------------------------------------------
-# This creates a local dummy database file in your folder.
-conn = sqlite3.connect("study_database.db")
+current_db_file = "study_database.db"
+conn = sqlite3.connect(current_db_file)
 cursor = conn.cursor()
 
 # Global variables for tracking state
-query_history = []  # Stores last 10 queries
-last_select_results = []  # Stores last SELECT query results for export
-current_db_file = "study_database.db"  # Track current database file
+query_history = []
+last_select_results = []
+last_select_columns = []
 
 # List of SQL keywords for autocompletion
 SQL_KEYWORDS = [
@@ -40,22 +37,24 @@ SQL_KEYWORDS = [
 
 class SyntaxHighlightingText(tk.Text):
     def __init__(self, *args, **kwargs):
-        tk.Text.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.tag_configure("keyword", foreground="#0000FF", font=("Courier", 10, "bold"))
         self.tag_configure("operator", foreground="#FF0000")
         self.tag_configure("string", foreground="#008000")
-        # --- AUTOCOMPLETE STATE ---
+        self.tag_configure("error_bg", background="#ffe6e6")
         self.tag_configure("ghost", foreground="grey")
+
+        # Autocomplete state
         self.matches = []
         self.match_index = 0
         self.ghost_start = None
         self.ghost_length = 0
-        
+
         # Key bindings for autocomplete
         self.bind("<KeyPress>", self.on_key_press)
         self.bind("<KeyRelease>", self.on_key_release)
         self.bind("<Tab>", self.on_tab)
-        
+
     def clear_ghost(self):
         """Removes the grey suggestion text."""
         if self.ghost_start:
@@ -68,7 +67,7 @@ class SyntaxHighlightingText(tk.Text):
         line_start = self.index("insert linestart")
         insert_pos = self.index("insert")
         text_before = self.get(line_start, insert_pos)
-        
+
         # Regex to find the word immediately to the left of the cursor
         match = re.search(r'\b([a-zA-Z_]+)$', text_before)
         if match:
@@ -80,8 +79,8 @@ class SyntaxHighlightingText(tk.Text):
     def show_suggestion(self):
         """Finds and displays the grey ghost text suffix."""
         self.clear_ghost()
-        word, start_index = self.get_current_word_info()
-        
+        word, _ = self.get_current_word_info()
+
         if not word:
             self.matches = []
             return
@@ -92,28 +91,28 @@ class SyntaxHighlightingText(tk.Text):
         if self.matches:
             self.match_index = 0
             match_word = self.matches[0]
-            
+
             # Match the user's case (e.g., if they type 'inse', suggest 'rt' instead of 'RT')
             if word.islower():
                 match_word = match_word.lower()
-                
+
             suggestion = match_word[len(word):]
-            
+
             # Insert ghost text
             insert_pos = self.index("insert")
             self.insert(insert_pos, suggestion, "ghost")
             self.ghost_start = insert_pos
             self.ghost_length = len(suggestion)
-            
+
             # Move cursor back to before the ghost text so the user can keep typing normally
             self.mark_set("insert", insert_pos)
-            
+
     def on_key_press(self, event):
         """Clears ghost text before actual typing happens."""
         # If typing normal characters, clear ghost so it doesn't get pushed forward
         if event.keysym not in ('Tab', 'Shift_L', 'Shift_R', 'Control_L', 'Control_R', 'Alt_L', 'Alt_R'):
             self.clear_ghost()
-            
+
         # Prevent default Tab spacing if we are currently looking at suggestions
         if event.keysym == 'Tab' and self.matches:
             return "break"
@@ -124,28 +123,30 @@ class SyntaxHighlightingText(tk.Text):
         if event.keysym in ('space', 'Return', 'Left', 'Right', 'Up', 'Down'):
             self.matches = []
             self.clear_ghost()
+            self.highlight()
             return
-            
+
         # Ignore modifier keys and Tab (Tab is handled separately)
         if event.keysym in ('Tab', 'Shift_L', 'Shift_R', 'Control_L', 'Control_R', 'Alt_L', 'Alt_R'):
             return
 
         self.show_suggestion()
+        self.highlight()
 
     def on_tab(self, event):
         """Handles accepting the autocomplete and cycling to next options."""
         if not self.matches:
-            return None # Allow normal tab behavior (indenting)
+            return None  # Allow normal tab behavior (indenting)
 
         if self.ghost_start:
             # 1st Tab Press: Accept the current ghost text
             self.clear_ghost()
-            word, start_index = self.get_current_word_info()
-            
+            word, _ = self.get_current_word_info()
+
             match_word = self.matches[self.match_index]
             if word.islower():
                 match_word = match_word.lower()
-            
+
             completion = match_word[len(word):]
             self.insert("insert", completion)
             # Cursor automatically moves to the end of the newly inserted word
@@ -159,7 +160,7 @@ class SyntaxHighlightingText(tk.Text):
             # Increment index and wrap around
             self.match_index = (self.match_index + 1) % len(self.matches)
             next_match = self.matches[self.match_index]
-            
+
             if current_word.islower():
                 next_match = next_match.lower()
 
@@ -167,93 +168,18 @@ class SyntaxHighlightingText(tk.Text):
             self.delete(start_index, "insert")
             self.insert("insert", next_match)
 
-        return "break" # Prevent default tab behavior
-        
-    def highlight(self, event=None):
-        """Color-code SQL keywords in the text."""
-        # Remove existing tags
-        for tag in ["keyword", "operator", "string"]:
-            self.tag_remove(tag, "1.0", tk.END)
-        
-        content = self.get("1.0", tk.END)
-        
-        # SQL keywords to highlight
-        keywords = [
-            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", 
-            "CREATE", "TABLE", "DROP", "ALTER", "JOIN", "INNER", "LEFT", 
-            "RIGHT", "OUTER", "ON", "GROUP BY", "ORDER BY", "HAVING",
-            "UNION", "INTERSECT", "EXCEPT", "VALUES", "SET", "INTO",
-            "COMMIT", "ROLLBACK", "BEGIN", "TRANSACTION", "SAVEPOINT"
-        ]
-        
-        # Highlight keywords (case insensitive)
-        for keyword in keywords:
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            for match in re.finditer(pattern, content, re.IGNORECASE):
-                start = f"1.0 + {match.start()} chars"
-                end = f"1.0 + {match.end()} chars"
-                self.tag_add("keyword", start, end)
-        
-        # Highlight operators
-        operators = ["=", ">", "<", ">=", "<=", "!=", "<>", "+", "-", "*", "/", "%"]
-        for op in operators:
-            start = "1.0"
-            while True:
-                pos = self.search(op, start, tk.END, regexp=False)
-                if not pos:
-                    break
-                end = f"{pos}+{len(op)}c"
-                self.tag_add("operator", pos, end)
-                start = end
-        
-        # Highlight strings (single and double quoted)
-        for quote in ["'", '"']:
-            start = "1.0"
-            while True:
-                pos = self.search(quote, start, tk.END, regexp=False)
-                if not pos:
-                    break
-                # Find matching closing quote
-                search_start = f"{pos}+1c"
-                end_pos = self.search(quote, search_start, tk.END, regexp=False)
-                if not end_pos:
-                    break
-                end = f"{end_pos}+1c"
-                self.tag_add("string", pos, end)
-                start = end
-        
-        # Highlight strings (single and double quoted)
-        for quote in ["'", '"']:
-            start = "1.0"
-            while True:
-                pos = self.search(quote, start, tk.END, regexp=False)
-                if not pos:
-                    break
-                # Find matching closing quote
-                search_start = f"{pos}+1c"
-                end_pos = self.search(quote, search_start, tk.END, regexp=False)
-                if not end_pos:
-                    break
-                end = f"{end_pos}+1c"
-                self.tag_add("string", pos, end)
-                start = end
-        
+        return "break"  # Prevent default tab behavior
+
     def highlight(self, event=None):
         # Remove existing tags
         for tag in ["keyword", "operator", "string", "error_bg"]:
             self.tag_remove(tag, "1.0", tk.END)
-        
+
         content = self.get("1.0", tk.END)
-        
+
         # SQL keywords to highlight
-        keywords = [
-            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", 
-            "CREATE", "TABLE", "DROP", "ALTER", "JOIN", "INNER", "LEFT", 
-            "RIGHT", "OUTER", "ON", "GROUP BY", "ORDER BY", "HAVING",
-            "UNION", "INTERSECT", "EXCEPT", "VALUES", "SET", "INTO",
-            "COMMIT", "ROLLBACK", "BEGIN", "TRANSACTION", "SAVEPOINT"
-        ]
-        
+        keywords = SQL_KEYWORDS
+
         # Highlight keywords (case insensitive)
         for keyword in keywords:
             pattern = r'\b' + re.escape(keyword) + r'\b'
@@ -261,7 +187,7 @@ class SyntaxHighlightingText(tk.Text):
                 start = f"1.0 + {match.start()} chars"
                 end = f"1.0 + {match.end()} chars"
                 self.tag_add("keyword", start, end)
-        
+
         # Highlight operators
         operators = ["=", ">", "<", ">=", "<=", "!=", "<>", "+", "-", "*", "/", "%"]
         for op in operators:
@@ -273,7 +199,7 @@ class SyntaxHighlightingText(tk.Text):
                 end = f"{pos}+{len(op)}c"
                 self.tag_add("operator", pos, end)
                 start = end
-        
+
         # Highlight strings (single and double quoted)
         for quote in ["'", '"']:
             start = "1.0"
@@ -293,116 +219,183 @@ class SyntaxHighlightingText(tk.Text):
 # ---------------------------------------------------------
 # APPLICATION LOGIC
 # ---------------------------------------------------------
+def quote_identifier(identifier):
+    """Return a safely quoted SQLite identifier."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def sql_literal(value):
+    """Convert Python value into SQL literal text."""
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, bytes):
+        return "X'" + value.hex() + "'"
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def parse_query_params(raw_params):
+    """Parse comma-separated params using CSV semantics."""
+    parsed_row = next(csv.reader([raw_params], skipinitialspace=True), [])
+    params = []
+    for value in parsed_row:
+        item = value.strip()
+        upper_item = item.upper()
+        if upper_item == "NULL":
+            params.append(None)
+        elif upper_item == "TRUE":
+            params.append(1)
+        elif upper_item == "FALSE":
+            params.append(0)
+        elif re.fullmatch(r"-?\d+", item):
+            params.append(int(item))
+        elif re.fullmatch(r"-?\d+\.\d+", item):
+            params.append(float(item))
+        else:
+            params.append(item)
+    return tuple(params)
+
+
+def split_sql_statements(sql_block):
+    """Split SQL block into executable statements."""
+    statements = []
+    buffer = ""
+
+    for char in sql_block:
+        buffer += char
+        if char == ";" and sqlite3.complete_statement(buffer):
+            stmt = buffer.strip().rstrip(";").strip()
+            if stmt:
+                statements.append(stmt)
+            buffer = ""
+
+    if buffer.strip():
+        statements.append(buffer.strip())
+
+    return statements
+
+
+def show_text_output():
+    result_tree.pack_forget()
+    text_output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+
+def show_grid_output():
+    text_output.pack_forget()
+    result_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+
+def update_row_count(value=None):
+    if value is None:
+        row_count_label.config(text="Rows: --")
+    else:
+        row_count_label.config(text=f"Rows: {value}")
+
+
 def execute_sql_block():
     """Executes the block of SQL from the input box."""
-    # Get all text from the input box
     sql_block = text_input.get("1.0", tk.END).strip()
-    
-    # Clear the output box
+
+    text_input.tag_remove("error_bg", "1.0", tk.END)
     text_output.delete("1.0", tk.END)
-    # Clear grid view if exists
     try:
         result_tree.delete(*result_tree.get_children())
-    except:
-        pass  # Tree might not exist yet
-    
+    except tk.TclError:
+        pass
+
+    update_row_count()
+
     if not sql_block:
+        show_text_output()
         text_output.insert(tk.END, "Please enter some SQL commands first.")
         return
-    
-    # Auto-semicolon feature: Add semicolon if missing at end of block
-    if sql_block and not sql_block.endswith(';'):
-        sql_block += ';'
-    
+
     start_time = time.time()
-    
+
     try:
-        # Split the block by ';' to handle multiple commands at once
-        statements = [s.strip() for s in sql_block.split(';') if s.strip()]
-        
-        # Store results for potential CSV export
-        global last_select_results
+        statements = split_sql_statements(sql_block)
+        if not statements:
+            show_text_output()
+            text_output.insert(tk.END, "No valid SQL statements found.")
+            return
+
+        raw_params = param_input.get().strip()
+        parsed_params = parse_query_params(raw_params) if raw_params else ()
+
+        global last_select_results, last_select_columns
         last_select_results = []
-        
+        last_select_columns = []
+
+        last_row_count = None
+
         for stmt in statements:
-            # Handle autocommit mode
-            if not autocommit_mode.get() and not stmt.upper().startswith(('BEGIN', 'COMMIT', 'ROLLBACK', 'SAVEPOINT')):
-                # In manual mode, we don't auto-commit DML/DDL unless in a transaction
-                pass
-            
-            # Feature 5: Parameterized Queries Support
-            raw_params = param_input.get().strip()
             if raw_params and "?" in stmt:
-                # Convert comma-separated string to tuple
-                param_tuple = tuple(p.strip() for p in raw_params.split(","))
-                cursor.execute(stmt, param_tuple)
+                cursor.execute(stmt, parsed_params)
             else:
                 cursor.execute(stmt)
-            
+
             # Log to history if it's a meaningful query
             if stmt.strip() and not stmt.upper().startswith(('COMMIT', 'ROLLBACK', 'BEGIN', 'SAVEPOINT')):
                 add_to_history(stmt)
-            
-            # If it's a SELECT statement, fetch and display the results
-            if stmt.upper().startswith("SELECT"):
+
+            if cursor.description:
                 rows = cursor.fetchall()
-                last_select_results = rows  # Store for CSV export
-                
+                column_names = [description[0] for description in cursor.description]
+
+                last_select_results = rows
+                last_select_columns = column_names
+                last_row_count = len(rows)
+
+                result_tree.delete(*result_tree.get_children())
+                result_tree["columns"] = column_names
+                result_tree["show"] = "headings"
+
+                for col in column_names:
+                    result_tree.heading(col, text=col)
+                    result_tree.column(col, width=max(120, len(col) * 12), anchor=tk.W)
+
                 if not rows:
+                    show_text_output()
                     text_output.insert(tk.END, "  -> (No results found)\n")
                 else:
-                    # Get column names
-                    column_names = [description[0] for description in cursor.description]
-                    
-                    # Feature 2: Grid View Implementation
-                    # Configure treeview with columns
-                    result_tree["columns"] = column_names
-                    result_tree["show"] = "headings"
-                    
-                    # Configure column headings
-                    for col in column_names:
-                        result_tree.heading(col, text=col)
-                        result_tree.column(col, width=100)
-                    
-                    # Insert data rows
                     for row in rows:
                         result_tree.insert("", tk.END, values=row)
-                    
-                    # Switch to grid view for SELECT results
-                    text_output.pack_forget()  # Hide text output
-                    result_tree.pack(fill=tk.BOTH, expand=True)  # Show grid view
+                    show_grid_output()
             else:
-                # For non-SELECT statements, show text output
-                result_tree.pack_forget()  # Hide grid view
-                text_output.pack(fill=tk.BOTH, expand=True)  # Show text output
-                text_output.insert(tk.END, f"Executed: {stmt[:50]}{'...' if len(stmt) > 50 else ''}\n")
-        
-        # Commit if in autocommit mode
+                show_text_output()
+                executed = f"Executed: {stmt[:50]}{'...' if len(stmt) > 50 else ''}"
+                if cursor.rowcount >= 0:
+                    last_row_count = cursor.rowcount
+                    executed += f" (rows affected: {cursor.rowcount})"
+                text_output.insert(tk.END, executed + "\n")
+
         if autocommit_mode.get():
             conn.commit()
-            text_output.insert(tk.END, "\n✅ Block executed successfully and committed.\n")
+            status_label.config(text="Autocommit: ON (Last run committed)")
         else:
-            text_output.insert(tk.END, "\n✅ Block executed successfully. (Manual mode - remember to commit)\n")
-        
-        # Update execution time
-        end_time = time.time()
-        execution_time_ms = int((end_time - start_time) * 1000)
+            status_label.config(text="Autocommit: OFF (Pending transaction)")
+
+        update_row_count(last_row_count)
+        refresh_db_tree()
+
+        execution_time_ms = int((time.time() - start_time) * 1000)
         time_label.config(text=f"Last query: {execution_time_ms} ms")
-        
+
     except Exception as e:
-        # Rollback if in autocommit mode and error occurs
-        if autocommit_mode.get():
+        if autocommit_mode.get() and conn.in_transaction:
             conn.rollback()
-            text_output.insert(tk.END, f"\n❌ ERROR: {e}\n(Rolled back due to autocommit mode)")
-        else:
-            text_output.insert(tk.END, f"\n❌ ERROR: {e}")
-        
-        # Feature 6: Error Highlighting
+
+        show_text_output()
+        text_output.insert(tk.END, f"\n❌ ERROR: {e}")
+        if autocommit_mode.get():
+            text_output.insert(tk.END, "\n(Rolled back due to autocommit mode)")
+
         text_input.tag_add("error_bg", "1.0", tk.END)
-        
-        # Show text output for errors
-        result_tree.pack_forget()  # Hide grid view
-        text_output.pack(fill=tk.BOTH, expand=True)  # Show text output
+        status_label.config(text="Execution failed")
+        update_row_count()
 
 def add_to_history(query):
     """Add query to history, maintaining last 10 unique queries."""
@@ -434,9 +427,12 @@ def load_query_from_history(event):
         query = query_history[index]
         text_input.delete("1.0", tk.END)
         text_input.insert(tk.END, query)
+        update_line_numbers()
+        text_input.highlight()
 
 def view_schema():
     """Fetches and displays the table structures and their columns."""
+    show_text_output()
     text_output.delete("1.0", tk.END)
     text_output.insert(tk.END, "--- DATABASE SCHEMA ---\n\n")
     
@@ -458,7 +454,7 @@ def view_schema():
             text_output.insert(tk.END, f"📦 TABLE: {table_name}\n")
             
             # PRAGMA table_info returns the column structures for a specific table
-            cursor.execute(f"PRAGMA table_info({table_name});")
+            cursor.execute(f"PRAGMA table_info({quote_identifier(table_name)});")
             columns = cursor.fetchall()
             
             for col in columns:
@@ -473,7 +469,7 @@ def view_schema():
 
 def export_to_csv():
     """Export last SELECT results to CSV file."""
-    if not last_select_results:
+    if not last_select_columns and not last_select_results:
         messagebox.showwarning("Export Warning", "No SELECT query results to export. Run a SELECT query first.")
         return
     
@@ -489,11 +485,9 @@ def export_to_csv():
     try:
         with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
-            # Write header if we have column names from last query
-            # We need to get column names from the last executed SELECT
-            # For simplicity, we'll just write the data
-            for row in last_select_results:
-                writer.writerow(row)
+            if last_select_columns:
+                writer.writerow(last_select_columns)
+            writer.writerows(last_select_results)
         
         messagebox.showinfo("Export Success", f"Results exported successfully to:\n{file_path}")
     except Exception as e:
@@ -515,15 +509,20 @@ def load_sql_file():
         
         text_input.delete("1.0", tk.END)
         text_input.insert(tk.END, content)
-        
+        update_line_numbers()
+        text_input.highlight()
+
         # Update status
-        status_label.config(text=f"Loaded: {file_path.split('/')[-1]}")
+        status_label.config(text=f"Loaded: {os.path.basename(file_path)}")
     except Exception as e:
         messagebox.showerror("Load Error", f"Failed to load SQL file:\n{e}")
 
 def clear_output():
     """Clear the output box."""
     text_output.delete("1.0", tk.END)
+    result_tree.delete(*result_tree.get_children())
+    show_text_output()
+    update_row_count()
 
 def toggle_autocommit():
     """Toggle autocommit mode and update button states."""
@@ -540,6 +539,7 @@ def commit_transaction():
     """Manually commit transaction."""
     try:
         conn.commit()
+        refresh_db_tree()
         messagebox.showinfo("Transaction", "Transaction committed successfully.")
         status_label.config(text="Last action: Committed")
     except Exception as e:
@@ -551,6 +551,7 @@ def rollback_transaction():
         conn.rollback()
         messagebox.showinfo("Transaction", "Transaction rolled back successfully.")
         status_label.config(text="Last action: Rolled back")
+        update_row_count()
     except Exception as e:
         messagebox.showerror("Transaction Error", f"Failed to rollback:\n{e}")
 
@@ -743,52 +744,120 @@ class MockPyMySQL:
     def connect(self, **kwargs):
         return conn
 
+
+SAFE_PYTHON_BUILTINS = {
+    "abs": abs,
+    "bool": bool,
+    "dict": dict,
+    "enumerate": enumerate,
+    "float": float,
+    "int": int,
+    "len": len,
+    "list": list,
+    "max": max,
+    "min": min,
+    "range": range,
+    "set": set,
+    "str": str,
+    "sum": sum,
+    "tuple": tuple,
+    "zip": zip,
+}
+
+
 def execute_nosql_mock(code):
+    global last_select_results, last_select_columns
+
+    show_text_output()
     text_output.delete("1.0", tk.END)
     text_output.insert(tk.END, "--- NoSQL Mock Execution ---\n")
+
+    last_select_results = []
+    last_select_columns = []
+    update_row_count()
+
+    inserted_rows = 0
+
     try:
         lines = code.split('\n')
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            find_match = re.match(r'db\.(\w+)\.find\((.*)\)', line)
+
+            find_match = re.fullmatch(r'db\.(\w+)\.find\((.*)\)', line)
             if find_match:
                 table = find_match.group(1)
-                cursor.execute(f"SELECT * FROM {table}")
+                cursor.execute(f"SELECT * FROM {quote_identifier(table)}")
                 rows = cursor.fetchall()
                 cols = [description[0] for description in cursor.description]
+
+                last_select_results = rows
+                last_select_columns = cols
+                update_row_count(len(rows))
+
+                if not rows:
+                    text_output.insert(tk.END, f"No documents found in {table}.\n")
                 for r in rows:
                     doc = dict(zip(cols, r))
                     text_output.insert(tk.END, json.dumps(doc, indent=2) + "\n")
                 continue
-            insert_match = re.match(r'db\.(\w+)\.insertOne\((.*)\)', line)
+
+            insert_match = re.fullmatch(r'db\.(\w+)\.insertOne\((.*)\)', line)
             if insert_match:
                 table = insert_match.group(1)
                 data = json.loads(insert_match.group(2))
-                cols = ', '.join(data.keys())
+
+                if not isinstance(data, dict) or not data:
+                    raise ValueError("insertOne() requires a non-empty JSON object")
+
+                columns = list(data.keys())
+                cols = ', '.join(quote_identifier(col) for col in columns)
                 placeholders = ', '.join(['?'] * len(data))
-                vals = tuple(data.values())
-                cursor.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", vals)
-                conn.commit()
+                vals = tuple(data[col] for col in columns)
+                cursor.execute(f"INSERT INTO {quote_identifier(table)} ({cols}) VALUES ({placeholders})", vals)
+                inserted_rows += 1
                 text_output.insert(tk.END, f"Inserted document into {table}.\n")
                 continue
+
             text_output.insert(tk.END, f"Command not recognized by mock engine: {line}\n")
+
+        if inserted_rows:
+            if autocommit_mode.get():
+                conn.commit()
+                status_label.config(text="NoSQL run committed")
+            else:
+                status_label.config(text="NoSQL run pending commit")
+            update_row_count(inserted_rows)
+            refresh_db_tree()
+
     except Exception as e:
+        if autocommit_mode.get() and conn.in_transaction:
+            conn.rollback()
         text_output.insert(tk.END, f"❌ NoSQL Mock Error: {e}")
+        status_label.config(text="NoSQL execution failed")
+
 
 def execute_python_mock(code):
+    show_text_output()
     text_output.delete("1.0", tk.END)
     text_output.insert(tk.END, "--- Python PyMySQL Mock Execution ---\n")
+
     def mock_print(*args):
         text_output.insert(tk.END, " ".join(str(a) for a in args) + "\n")
+
     local_env = {'pymysql': MockPyMySQL(), 'print': mock_print}
+    safe_globals = {"__builtins__": SAFE_PYTHON_BUILTINS}
+
     try:
-        clean_code = code.replace("import pymysql", "")
-        exec(clean_code, {}, local_env)
+        clean_code = re.sub(r"^\s*import\s+pymysql\s*$", "", code, flags=re.MULTILINE)
+        exec(clean_code, safe_globals, local_env)
         text_output.insert(tk.END, "\n✅ Python Script Completed.")
+        status_label.config(text="PyMySQL mock completed")
     except Exception as e:
         text_output.insert(tk.END, f"\n❌ Python Error: {e}")
+        status_label.config(text="PyMySQL mock failed")
+
 
 def nuke_database():
     if messagebox.askyesno("NUKE DATABASE", "Are you sure? This will permanently delete ALL tables and data!"):
@@ -797,36 +866,56 @@ def nuke_database():
             tables = cursor.fetchall()
             for table in tables:
                 if table[0] != "sqlite_sequence":
-                    cursor.execute(f"DROP TABLE {table[0]};")
+                    cursor.execute(f"DROP TABLE {quote_identifier(table[0])};")
             conn.commit()
+            refresh_db_tree()
+            update_row_count(0)
+
+            show_text_output()
             text_output.delete("1.0", tk.END)
             text_output.insert(tk.END, "💥 DATABASE NUKED. All tables dropped.\n")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to nuke: {e}")
 
+
 def generate_code_from_tables():
+    show_text_output()
     text_output.delete("1.0", tk.END)
     text_output.insert(tk.END, "--- GENERATED SQL CODE ---\n\n")
+
     try:
-        cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table';")
+        cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table' AND sql IS NOT NULL;")
         tables = cursor.fetchall()
+
         for t in tables:
             table_name = t[0]
             if table_name == "sqlite_sequence":
                 continue
-            text_output.insert(tk.END, f"{t[1]};\n")
-            cursor.execute(f"SELECT * FROM {table_name}")
+
+            create_stmt = t[1].strip()
+            if not create_stmt.endswith(";"):
+                create_stmt += ";"
+            text_output.insert(tk.END, create_stmt + "\n")
+
+            quoted_table = quote_identifier(table_name)
+            cursor.execute(f"SELECT * FROM {quoted_table}")
             rows = cursor.fetchall()
+
             if rows:
-                cursor.execute(f"PRAGMA table_info({table_name});")
+                cursor.execute(f"PRAGMA table_info({quoted_table});")
                 cols = [c[1] for c in cursor.fetchall()]
+
                 for r in rows:
-                    vals = [f"'{str(v)}'" if isinstance(v, str) else str(v) for v in r]
-                    insert_stmt = f"INSERT INTO {table_name} ({', '.join(cols)}) VALUES ({', '.join(vals)});"
+                    vals = [sql_literal(v) for v in r]
+                    quoted_cols = ", ".join(quote_identifier(col) for col in cols)
+                    insert_stmt = f"INSERT INTO {quoted_table} ({quoted_cols}) VALUES ({', '.join(vals)});"
                     text_output.insert(tk.END, f"{insert_stmt}\n")
+
             text_output.insert(tk.END, "\n")
+
     except Exception as e:
         text_output.insert(tk.END, f"❌ ERROR: {e}")
+
 
 # Feature 3: Database Tree-View helper functions
 def refresh_db_tree():
@@ -837,6 +926,40 @@ def refresh_db_tree():
         if table[0] != "sqlite_sequence":
             db_tree.insert("", "end", text=table[0])
 
+
+def refresh_db_dropdown(selected_db=None):
+    available_dbs = sorted(f for f in os.listdir('.') if f.endswith('.db'))
+    if "study_database.db" not in available_dbs:
+        available_dbs.append("study_database.db")
+    db_combo['values'] = available_dbs
+    if selected_db:
+        db_combo.set(selected_db)
+
+
+def resolve_pending_transaction():
+    """Ask how to handle pending transaction before switching DB."""
+    if not conn.in_transaction:
+        return True
+
+    choice = messagebox.askyesnocancel(
+        "Pending Transaction",
+        "You have uncommitted changes.\n\nYes = Commit and continue\nNo = Discard changes\nCancel = Stay on current database",
+    )
+
+    if choice is None:
+        return False
+
+    try:
+        if choice:
+            conn.commit()
+        else:
+            conn.rollback()
+    except Exception as e:
+        messagebox.showerror("Transaction Error", f"Could not resolve pending changes:\n{e}")
+        return False
+
+    return True
+
 def on_table_double_click(event):
     """Handle double-click on a table in the tree view."""
     selected_item = db_tree.selection()
@@ -844,72 +967,89 @@ def on_table_double_click(event):
         table_name = db_tree.item(selected_item[0], "text")
         text_input.delete("1.0", tk.END)
         text_input.insert(tk.END, f"SELECT * FROM {table_name};")
+        update_line_numbers()
         route_execution()
 
 # Feature 1: Multiple DB Support
 def switch_database(event=None):
     global conn, cursor, current_db_file
     new_db = db_combo.get()
-    if new_db:
-        conn.close()
-        current_db_file = new_db
-        conn = sqlite3.connect(current_db_file, check_same_thread=False)
-        cursor = conn.cursor()
-        text_output.delete("1.0", tk.END)
-        text_output.insert(tk.END, f"\nSwitched to database: {new_db}\n")
-        refresh_db_tree()  # Refresh the database tree view
+    if not new_db or new_db == current_db_file:
+        return
+
+    if not resolve_pending_transaction():
+        db_combo.set(current_db_file)
+        return
+
+    conn.close()
+    current_db_file = new_db
+    conn = sqlite3.connect(current_db_file)
+    cursor = conn.cursor()
+
+    refresh_db_dropdown(current_db_file)
+    refresh_db_tree()
+    update_row_count()
+
+    show_text_output()
+    text_output.delete("1.0", tk.END)
+    text_output.insert(tk.END, f"\nSwitched to database: {new_db}\n")
+    status_label.config(text=f"Active DB: {new_db}")
 
 def create_new_database():
     """Create a new database file and switch to it."""
     global conn, cursor, current_db_file
     new_db_name = simpledialog.askstring("New Database", "Enter new database name (e.g., mydb.db):")
-    if new_db_name:
-        if not new_db_name.endswith('.db'):
-            new_db_name += '.db'
-        
-        # Close current connection
-        conn.close()
-        
-        # Create new database
-        current_db_file = new_db_name
-        conn = sqlite3.connect(current_db_file, check_same_thread=False)
-        cursor = conn.cursor()
-        
-        # Update UI
-        available_dbs = [f for f in os.listdir('.') if f.endswith('.db')]
-        if new_db_name not in available_dbs:
-            available_dbs.append(new_db_name)
-        db_combo['values'] = available_dbs
-        db_combo.set(new_db_name)
-        
-        text_output.delete("1.0", tk.END)
-        text_output.insert(tk.END, f"\nCreated and switched to new database: {new_db_name}\n")
-        refresh_db_tree()
+    if not new_db_name:
+        return
 
-# Feature 6: Error Highlighting Enhancement
-def highlight_error_line():
-    """Highlight the line where error occurred in text_input"""
-    # Remove previous error highlights
-    text_input.tag_remove("error_line", "1.0", tk.END)
-    # In a real implementation, we would parse the error to find the line
-    # For simplicity, we'll highlight the entire input for now
-    # A more advanced implementation would parse SQLite error messages
-    text_input.tag_add("error_line", "1.0", tk.END)
+    new_db_name = os.path.basename(new_db_name.strip())
+    if not new_db_name:
+        return
+
+    if not new_db_name.endswith('.db'):
+        new_db_name += '.db'
+
+    if not resolve_pending_transaction():
+        return
+
+    conn.close()
+    current_db_file = new_db_name
+    conn = sqlite3.connect(current_db_file)
+    cursor = conn.cursor()
+
+    refresh_db_dropdown(new_db_name)
+    refresh_db_tree()
+    update_row_count()
+
+    show_text_output()
+    text_output.delete("1.0", tk.END)
+    text_output.insert(tk.END, f"\nCreated and switched to new database: {new_db_name}\n")
+    status_label.config(text=f"Active DB: {new_db_name}")
+
 
 def route_execution():
     mode = mode_var.get()
     raw_code = text_input.get("1.0", tk.END).strip()
-    text_output.delete("1.0", tk.END)
+
+    text_input.tag_remove("error_bg", "1.0", tk.END)
+
     if not raw_code:
+        show_text_output()
+        text_output.delete("1.0", tk.END)
         text_output.insert(tk.END, "Please enter commands first.")
         return
-    start_time = time.time()
+
     if mode == MODE_SQL:
         execute_sql_block()
-    elif mode == MODE_NOSQL:
+        return
+
+    start_time = time.time()
+
+    if mode == MODE_NOSQL:
         execute_nosql_mock(raw_code)
     elif mode == MODE_PYMYSQL:
         execute_python_mock(raw_code)
+
     execution_time_ms = int((time.time() - start_time) * 1000)
     time_label.config(text=f"Last run: {execution_time_ms} ms")
 
@@ -1014,15 +1154,17 @@ def update_line_numbers(event=None):
     line_numbers.insert("1.0", "\n".join(str(i) for i in range(1, lines + 1)))
     line_numbers.config(state="disabled")
 
-text_input.bind("<KeyRelease>", update_line_numbers)
-text_input.bind("<MouseWheel>", update_line_numbers)
+text_input.bind("<KeyRelease>", update_line_numbers, add="+")
+text_input.bind("<MouseWheel>", update_line_numbers, add="+")
+text_input.bind("<ButtonRelease-1>", update_line_numbers, add="+")
+update_line_numbers()
 
 # Buttons Area
 button_frame = tk.Frame(right_frame)
 button_frame.pack(pady=8, fill=tk.X)
 
 # Primary buttons
-btn_execute = tk.Button(button_frame, text="▶ Execute Block", bg="#d4edda", font=("Arial", 10, "bold"), command=execute_sql_block)
+btn_execute = tk.Button(button_frame, text="▶ Execute Block", bg="#d4edda", font=("Arial", 10, "bold"), command=route_execution)
 btn_execute.pack(side=tk.LEFT, padx=2)
 
 btn_schema = tk.Button(button_frame, text="📋 View Schema", bg="#cce5ff", font=("Arial", 10, "bold"), command=view_schema)
@@ -1064,13 +1206,14 @@ mode_menu.pack(side=tk.LEFT, padx=2)
 
 # Feature 1: Multiple DB Support - UI
 tk.Label(button_frame2, text=" | DB:").pack(side=tk.LEFT, padx=(10,2))
-available_dbs = [f for f in os.listdir('.') if f.endswith('.db')]
+available_dbs = sorted(f for f in os.listdir('.') if f.endswith('.db'))
 if "study_database.db" not in available_dbs:
     available_dbs.append("study_database.db")
 db_combo = ttk.Combobox(button_frame2, values=available_dbs, state="readonly", width=12)
 db_combo.set(current_db_file)
 db_combo.pack(side=tk.LEFT, padx=2)
 db_combo.bind("<<ComboboxSelected>>", switch_database)
+refresh_db_dropdown(current_db_file)
 
 # Button to create a new database
 btn_new_db = tk.Button(button_frame2, text="+ New DB", bg="#d4edda", font=("Arial", 9), command=create_new_database)
@@ -1208,9 +1351,23 @@ def toggle_dark_mode():
 btn_dark_mode = tk.Button(status_frame, text="🌙 Toggle Theme", command=toggle_dark_mode)
 btn_dark_mode.pack(side=tk.RIGHT, padx=10)
 
+
+def on_app_close():
+    try:
+        if conn.in_transaction:
+            should_commit = messagebox.askyesno(
+                "Unsaved Transaction",
+                "You have uncommitted changes. Commit before closing?",
+            )
+            if should_commit:
+                conn.commit()
+            else:
+                conn.rollback()
+        conn.close()
+    finally:
+        root.destroy()
+
 # Start the application
 print("Starting application...")
+root.protocol("WM_DELETE_WINDOW", on_app_close)
 root.mainloop()
-
-# Close connection when the window is closed
-conn.close()
