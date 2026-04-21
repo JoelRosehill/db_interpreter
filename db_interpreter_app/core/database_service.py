@@ -481,8 +481,98 @@ class DatabaseService:
         unresolved = sorted(name for name in table_names if name not in ordered)
         return ordered + unresolved, unresolved
 
+    def _get_table_columns(self, table_name):
+        self.cursor.execute(f"PRAGMA table_info({quote_identifier(table_name)});")
+        return self.cursor.fetchall()
+
+    def _collect_foreign_key_violations(self):
+        self.cursor.execute("PRAGMA foreign_key_check;")
+        fk_violations = []
+
+        for child_table, rowid, parent_table, fk_id in self.cursor.fetchall():
+            self.cursor.execute(f"PRAGMA foreign_key_list({quote_identifier(child_table)});")
+            fk_rows = [row for row in self.cursor.fetchall() if row[0] == fk_id]
+            fk_rows.sort(key=lambda row: row[1])
+
+            source_columns = [row[3] for row in fk_rows]
+            target_columns = [row[4] for row in fk_rows]
+
+            source_values = []
+            if rowid is not None:
+                child_columns = [col[1] for col in self._get_table_columns(child_table)]
+                self.cursor.execute(f"SELECT * FROM {quote_identifier(child_table)} WHERE rowid = ?", (rowid,))
+                child_row = self.cursor.fetchone()
+                if child_row is not None:
+                    child_map = dict(zip(child_columns, child_row))
+                    source_values = [child_map.get(col) for col in source_columns]
+
+            fk_violations.append(
+                {
+                    "child_table": child_table,
+                    "rowid": rowid,
+                    "parent_table": parent_table,
+                    "source_columns": source_columns,
+                    "target_columns": target_columns,
+                    "source_values": source_values,
+                }
+            )
+
+        return fk_violations
+
+    def _format_fk_violation_message(self, fk_violations):
+        lines = [
+            "Cannot generate SQL because source data contains broken foreign-key references.",
+            "Fix these rows first, then run Generate SQL again:",
+        ]
+
+        for issue in fk_violations:
+            child_table = issue["child_table"]
+            rowid = issue["rowid"]
+            parent_table = issue["parent_table"]
+            source_columns = issue["source_columns"]
+            target_columns = issue["target_columns"]
+            source_values = issue["source_values"]
+
+            if source_values:
+                pairs = ", ".join(
+                    f"{column}={sql_literal(value)}"
+                    for column, value in zip(source_columns, source_values)
+                )
+            else:
+                pairs = ", ".join(source_columns)
+
+            row_label = f"rowid {rowid}" if rowid is not None else "rowid unknown"
+            lines.append(
+                f"- {child_table} ({row_label}): ({pairs}) references missing "
+                f"{parent_table}.({', '.join(target_columns)})"
+            )
+
+        return "\n".join(lines)
+
+    def _fetch_rows_for_export(self, table_name):
+        quoted_table = quote_identifier(table_name)
+        columns_info = self._get_table_columns(table_name)
+        column_names = [col[1] for col in columns_info]
+        pk_columns = [col[1] for col in sorted(columns_info, key=lambda col: col[5]) if col[5] > 0]
+
+        if pk_columns:
+            order_by = ", ".join(quote_identifier(col) for col in pk_columns)
+            self.cursor.execute(f"SELECT * FROM {quoted_table} ORDER BY {order_by}")
+            return column_names, self.cursor.fetchall()
+
+        try:
+            self.cursor.execute(f"SELECT * FROM {quoted_table} ORDER BY rowid")
+            return column_names, self.cursor.fetchall()
+        except sqlite3.OperationalError:
+            self.cursor.execute(f"SELECT * FROM {quoted_table}")
+            return column_names, self.cursor.fetchall()
+
     def generate_sql_code(self):
         with self._lock:
+            fk_violations = self._collect_foreign_key_violations()
+            if fk_violations:
+                raise ValueError(self._format_fk_violation_message(fk_violations))
+
             buffer = io.StringIO()
             buffer.write("-- GENERATED SQL CODE --\n\n")
 
@@ -497,12 +587,13 @@ class DatabaseService:
             if unresolved:
                 unresolved_list = ", ".join(unresolved)
                 buffer.write(f"-- Cyclic FK dependencies detected for: {unresolved_list}\n")
-                buffer.write("-- Output remains loadable by temporarily disabling FK enforcement.\n\n")
+                buffer.write("-- Using deferred FK checks so transaction validates only at commit.\n\n")
 
-            buffer.write("PRAGMA foreign_keys = OFF;\n")
+            buffer.write("PRAGMA foreign_keys = ON;\n")
+            buffer.write("PRAGMA defer_foreign_keys = ON;\n")
             buffer.write("BEGIN TRANSACTION;\n\n")
 
-            buffer.write("-- TABLE DEFINITIONS\n")
+            buffer.write("-- 1. CREATE TABLES (parent -> child order)\n")
             for table_name in ordered_tables:
                 create_sql = table_definitions[table_name]
                 create_statement = create_sql.strip()
@@ -510,17 +601,14 @@ class DatabaseService:
                     create_statement += ";"
                 buffer.write(create_statement + "\n\n")
 
-            buffer.write("-- TABLE DATA\n")
+            buffer.write("-- 2. INSERT DATA (parent -> child order)\n")
             for table_name in ordered_tables:
                 quoted_table = quote_identifier(table_name)
-                self.cursor.execute(f"SELECT * FROM {quoted_table}")
-                rows = self.cursor.fetchall()
+                columns, rows = self._fetch_rows_for_export(table_name)
 
                 if not rows:
                     continue
 
-                self.cursor.execute(f"PRAGMA table_info({quoted_table});")
-                columns = [col[1] for col in self.cursor.fetchall()]
                 quoted_columns = ", ".join(quote_identifier(col) for col in columns)
 
                 for row in rows:
@@ -530,6 +618,7 @@ class DatabaseService:
                 buffer.write("\n")
 
             buffer.write("COMMIT;\n")
+            buffer.write("PRAGMA defer_foreign_keys = OFF;\n")
             buffer.write("PRAGMA foreign_keys = ON;\n")
 
             return buffer.getvalue()

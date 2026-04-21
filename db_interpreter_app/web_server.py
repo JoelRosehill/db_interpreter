@@ -61,6 +61,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
 
             self._send_json(404, {"ok": False, "error": "Unknown API route"})
+        except ValueError as error:
+            self._send_json(400, {"ok": False, "error": str(error)})
+        except RuntimeError as error:
+            self._send_json(409, {"ok": False, "error": str(error)})
         except Exception as error:
             self._send_json(500, {"ok": False, "error": str(error)})
 
