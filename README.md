@@ -1,9 +1,9 @@
 # SQL Study Environment - Enhanced Python Database Interpreter
 
-A comprehensive, feature-rich SQL study tool built with Python and Tkinter for learning database concepts, practicing SQL queries, and understanding database management systems.
+A comprehensive, feature-rich SQL study tool built with a Python backend and a modern HTML/CSS/JS frontend for learning database concepts, practicing SQL queries, and understanding database systems.
 
 ![Python Version](https://img.shields.io/badge/Python-3.13-blue)
-![Tkinter](https://img.shields.io/badge/GUI-Tkinter-green)
+![Frontend](https://img.shields.io/badge/Frontend-HTML%2FCSS%2FJS-green)
 ![SQLite](https://img.shields.io/badge/Database-SQLite-orange)
 
 ## 📚 Overview
@@ -14,7 +14,7 @@ This is an enhanced version of a basic SQL interpreter that includes 20+ learnin
 
 ### Prerequisites
 - Python 3.8 or higher
-- Tkinter (usually included with Python)
+- A modern browser (Chrome, Safari, Firefox, Edge)
 - No additional packages required!
 
 ### Installation & Running
@@ -23,12 +23,14 @@ This is an enhanced version of a basic SQL interpreter that includes 20+ learnin
 # Navigate to the project directory
 cd db_interpreter
 
-# Run the application
+# Run the web application
 python python-db-interpreter.py
 
 # Or with python3
 python3 python-db-interpreter.py
 ```
+
+Then open `http://127.0.0.1:8000` in your browser.
 
 ## ✨ Core Features
 
@@ -146,17 +148,15 @@ Sidebar showing all tables in your database.
 
 ---
 
-#### 10. Dark Mode
-High-contrast theme for reduced eye strain.
+#### 10. Theme Presets
+Switch between visual styles depending on your preference.
 
 **Usage:**
-1. Click `🌙 Toggle Theme` button in status bar
-2. Switch between light and dark themes
-
-**Dark Mode Colors:**
-- Background: #2b2b2b
-- Text: #ffffff
-- Accent colors adjusted for visibility
+1. Use the `Theme` dropdown in the top bar
+2. Select one of:
+   - `Modern Light`
+   - `Modern Dark`
+   - `Retro 95` (classic square Windows-style look)
 
 ---
 
@@ -179,21 +179,9 @@ Tracks line numbers in the input area.
 
 ### 🐍 Python & Backend Logic
 
-#### 13. Parameterized Queries (Safe Mode)
-Practice SQL injection prevention with `?` placeholders.
-
-**Usage:**
-1. Write query with `?` placeholders
-2. Enter values in the `Params:` field (comma-separated)
-3. Execute
-
-**Example:**
-```sql
-SELECT * FROM users WHERE id = ?
-```
-**Params:** `1`
-
-**Learning Point:** Prevents SQL injection by separating query from data.
+#### 13. Simplified Execution Flow
+The editor now runs direct SQL statements without a separate parameter input field,
+to keep the UI focused and easier to use in class demos.
 
 ---
 
@@ -255,8 +243,8 @@ filtering rows based on specified conditions, sorting the results."
 
 ---
 
-#### 19. Cheat Sheet Sidebar
-Non-editable reference with common SQL commands.
+#### 19. Quick SQL Reference
+Use the schema viewer and README snippets as your fast reference for common SQL commands.
 
 **Contents:**
 - CREATE TABLE syntax
@@ -418,18 +406,12 @@ SELECT * FROM students ORDER BY age DESC, name ASC;
 
 ### Application Won't Start
 
-**Error:** "No module named tkinter"
+**Error:** "Address already in use"
 
 **Solution:**
 ```bash
-# Ubuntu/Debian
-sudo apt-get install python3-tk
-
-# Fedora/RHEL
-sudo dnf install python3-tkinter
-
-# macOS
-brew install python-tk@3.13
+# Stop the process currently using port 8000,
+# or run the app from another terminal session after freeing the port.
 ```
 
 ### Database Locked
@@ -448,10 +430,24 @@ brew install python-tk@3.13
 
 ```
 db_interpreter/
-├── python-db-interpreter.py    # Main application file
-├── study_database.db           # Default SQLite database
-├── README.md                  # This documentation
-└── [other].db                 # Additional databases you create
+├── python-db-interpreter.py          # Entry point script
+├── db_interpreter_app/
+│   ├── __init__.py                   # Public app exports
+│   ├── app.py                        # App runner wrapper
+│   ├── web_server.py                 # HTTP API + static file server
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── constants.py              # Modes and shared constants
+│   │   ├── database_service.py       # SQLite execution and state management
+│   │   ├── explainer.py              # SQL-to-English explanation logic
+│   │   └── sql_utils.py              # SQL parsing and safety helpers
+│   └── web/
+│       ├── index.html                # Frontend layout
+│       ├── styles.css                # Modern + Retro 95 themes
+│       └── app.js                    # Frontend behavior and API calls
+├── study_database.db                 # Default SQLite database
+├── README.md                         # This documentation
+└── [other].db                        # Additional databases you create
 ```
 
 ---
@@ -462,12 +458,12 @@ db_interpreter/
 1. Learn basic SELECT queries
 2. Practice INSERT, UPDATE, DELETE
 3. Use Explain mode to understand syntax
-4. Use Cheat Sheet for reference
+4. Use History/Tables side panels for quick exploration
 
 ### Intermediate
 1. Learn JOINs with Database Tree-View
 2. Practice GROUP BY and HAVING
-3. Use Parameterized Queries
+3. Compare `Modern` and `Retro 95` themes
 4. Export results to CSV
 
 ### Advanced
@@ -485,32 +481,16 @@ db_interpreter/
 The code is structured for easy modification:
 
 ```python
-# Global variables at the top
-current_mode = MODE_SQL
-query_history = []
-last_select_results = []
+from db_interpreter_app import run_web_app
 
-# Functions for each feature
-def execute_sql_block():
-    """Main SQL execution logic"""
-    pass
-
-def explain_query():
-    """Query explanation feature"""
-    pass
+# Start the backend server + web frontend
+run_web_app(host="127.0.0.1", port=8000)
 ```
 
-### Extending SQL Keywords
+### Extending PyMySQL Mock Safety
 
-Edit the `SQL_KEYWORDS` list:
-
-```python
-SQL_KEYWORDS = [
-    "SELECT", "FROM", "WHERE",
-    # Add your custom keywords here
-    "CUSTOM_KEYWORD",
-]
-```
+Edit the `SAFE_PYTHON_BUILTINS` map in `db_interpreter_app/core/constants.py`
+if you need to allow additional harmless Python built-ins in mock mode.
 
 ---
 
@@ -522,14 +502,14 @@ This project is open for educational use. Feel free to modify and share!
 
 ## 🙏 Credits
 
-Built with Python 3.13 and Tkinter for the Database Systems course.
+Built with Python 3.13, SQLite, and a custom HTML/CSS/JS frontend for the Database Systems course.
 
 ---
 
 ## 📞 Support
 
 For issues or questions:
-1. Check the Cheat Sheet sidebar
+1. Check the Schema panel output
 2. Use Explain mode for query help
 3. Review this README
 

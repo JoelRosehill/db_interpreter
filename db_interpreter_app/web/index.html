@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="modern-light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SQL Study Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="background-glow" aria-hidden="true"></div>
+
+    <div class="app-shell">
+      <header class="topbar card">
+        <div class="brand">
+          <p class="eyebrow">Database Lab</p>
+          <h1>SQL Study Studio</h1>
+          <p class="subtitle">Simple browser workspace for SQL practice.</p>
+        </div>
+
+        <div class="topbar-meta">
+          <label class="theme-picker">
+            <span>Theme</span>
+            <select id="themeSelect">
+              <option value="modern-light">Modern Light</option>
+              <option value="modern-dark">Modern Dark</option>
+              <option value="retro-95">Retro 95</option>
+            </select>
+          </label>
+
+          <div class="metric">
+            <span>Active DB</span>
+            <strong id="activeDbLabel">--</strong>
+          </div>
+          <div class="metric">
+            <span>Last Run</span>
+            <strong id="timeLabel">-- ms</strong>
+          </div>
+          <div class="metric">
+            <span>Rows</span>
+            <strong id="rowCountLabel">--</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="main-column">
+          <section class="editor card">
+            <div class="toolbar">
+              <label>
+                <span>Mode</span>
+                <select id="modeSelect">
+                  <option value="SQL">SQL</option>
+                  <option value="NoSQL">NoSQL</option>
+                  <option value="PyMySQL">PyMySQL</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Database</span>
+                <select id="dbSelect"></select>
+              </label>
+
+              <button id="newDbBtn" class="btn">New DB</button>
+
+              <label class="toggle-wrap">
+                <span>Autocommit</span>
+                <input type="checkbox" id="autocommitToggle" checked />
+              </label>
+            </div>
+
+            <div class="toolbar actions">
+              <button id="executeBtn" class="btn primary">Run (Ctrl/Cmd+Enter)</button>
+              <button id="explainBtn" class="btn">Explain</button>
+              <button id="schemaBtn" class="btn">Schema</button>
+              <button id="clearBtn" class="btn ghost">Clear Output</button>
+            </div>
+
+            <div class="editor-wrap">
+              <pre id="lineNumbers" aria-hidden="true">1</pre>
+              <textarea id="sqlEditor" spellcheck="false" placeholder="Write SQL or mock commands here..."></textarea>
+            </div>
+
+            <p id="statusBar" class="status">Ready.</p>
+          </section>
+
+          <section class="output card">
+            <div class="section-head">
+              <h2>Output</h2>
+            </div>
+
+            <div id="tableContainer" class="table-container hidden"></div>
+            <pre id="outputText" class="output-text"></pre>
+          </section>
+        </section>
+
+        <aside class="side-column">
+          <section class="card side-card">
+            <div class="section-head">
+              <h2>Query History</h2>
+            </div>
+            <ul id="historyList" class="list"></ul>
+          </section>
+
+          <section class="card side-card">
+            <div class="section-head">
+              <h2>Tables</h2>
+            </div>
+            <ul id="tablesList" class="list"></ul>
+          </section>
+
+          <section class="card side-card">
+            <details id="advancedTools">
+              <summary>Advanced Tools</summary>
+              <div class="advanced-actions">
+                <button id="generateBtn" class="btn">Generate SQL</button>
+                <button id="commitBtn" class="btn">Commit</button>
+                <button id="rollbackBtn" class="btn">Rollback</button>
+                <button id="loadBtn" class="btn">Load .sql</button>
+                <button id="exportBtn" class="btn">Export CSV</button>
+                <button id="nukeBtn" class="btn danger">Nuke DB</button>
+              </div>
+            </details>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <input id="sqlFileInput" type="file" accept=".sql,text/plain" hidden />
+    <script src="/app.js" defer></script>
+  </body>
+</html>
