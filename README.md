@@ -32,6 +32,9 @@ python3 python-db-interpreter.py
 
 Then open `http://127.0.0.1:8000` in your browser.
 
+Database files are stored in `./databases/`.
+Legacy `.db` files in the project root are auto-migrated into that folder on startup.
+
 ## ✨ Core Features
 
 ### 🛠️ Functionality Upgrades
@@ -205,7 +208,7 @@ Highlights problematic input lines on errors.
 ---
 
 #### 16. Multiple Database Support
-Switch between different .db files.
+Switch between different .db files stored in `./databases/`.
 
 **Usage:**
 1. Select database from dropdown
@@ -431,6 +434,9 @@ SELECT * FROM students ORDER BY age DESC, name ASC;
 ```
 db_interpreter/
 ├── python-db-interpreter.py          # Entry point script
+├── databases/
+│   ├── study_database.db             # Default SQLite database
+│   └── [other].db                    # Additional databases you create
 ├── db_interpreter_app/
 │   ├── __init__.py                   # Public app exports
 │   ├── app.py                        # App runner wrapper
@@ -445,9 +451,8 @@ db_interpreter/
 │       ├── index.html                # Frontend layout
 │       ├── styles.css                # Modern + Retro 95 themes
 │       └── app.js                    # Frontend behavior and API calls
-├── study_database.db                 # Default SQLite database
 ├── README.md                         # This documentation
-└── [other].db                        # Additional databases you create
+└── .gitignore
 ```
 
 ---

@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -32,7 +33,16 @@ class MockPyMySQL:
 
 class DatabaseService:
     def __init__(self, base_dir=None):
-        self.base_dir = Path(base_dir or os.getcwd()).resolve()
+        requested_base = Path(base_dir or os.getcwd()).resolve()
+        if requested_base.name == "databases":
+            self.workspace_dir = requested_base.parent
+            self.base_dir = requested_base
+        else:
+            self.workspace_dir = requested_base
+            self.base_dir = requested_base / "databases"
+
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+
         self._lock = threading.RLock()
 
         self.current_db_file = DEFAULT_DB_FILE
@@ -43,7 +53,24 @@ class DatabaseService:
         self.last_select_columns = []
         self.last_select_rows = []
 
+        self._migrate_legacy_databases()
         self._connect(self.current_db_file)
+
+    def _migrate_legacy_databases(self):
+        legacy_dbs = sorted(self.workspace_dir.glob("*.db"))
+        for legacy_db in legacy_dbs:
+            target = self.base_dir / legacy_db.name
+
+            if legacy_db.parent == self.base_dir:
+                continue
+
+            if target.exists():
+                continue
+
+            try:
+                shutil.move(str(legacy_db), str(target))
+            except OSError:
+                continue
 
     def _connect(self, db_name):
         db_path = self.base_dir / db_name
