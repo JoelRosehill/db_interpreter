@@ -75,11 +75,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             body = self._read_json_body()
 
             if path == "/api/execute":
-                result = service.execute(
-                    mode=body.get("mode", MODE_SQL),
-                    code=body.get("code", ""),
-                    autocommit=bool(body.get("autocommit", True)),
-                )
+                mode = body.get("mode", MODE_SQL)
+                code = body.get("code", "")
+                autocommit = bool(body.get("autocommit", True))
+                print(f"[DEBUG] Execute: mode={mode}, code={code[:50]}...")
+                result = service.execute(mode=mode, code=code, autocommit=autocommit)
                 self._send_json(200, result)
                 return
 
