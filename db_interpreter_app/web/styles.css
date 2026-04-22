@@ -368,6 +368,70 @@ textarea:focus {
   overflow: hidden;
 }
 
+.autocomplete-panel {
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--input-bg) 92%, var(--card) 8%);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  animation: fade-slide 140ms ease;
+}
+
+.autocomplete-panel.hidden {
+  display: none;
+}
+
+.autocomplete-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.autocomplete-meta strong {
+  font-size: 0.84rem;
+}
+
+.autocomplete-meta span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.autocomplete-list {
+  display: grid;
+  gap: 6px;
+}
+
+.autocomplete-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--input-border) 58%);
+  background: color-mix(in srgb, var(--input-bg) 82%, var(--accent) 18%);
+}
+
+.autocomplete-item strong {
+  font-size: 0.84rem;
+}
+
+.autocomplete-detail {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .status {
   margin: 0;
   min-height: 22px;
@@ -539,10 +603,12 @@ html[data-theme="retro-95"] .metric {
 
 html[data-theme="retro-95"] .btn,
 html[data-theme="retro-95"] .list button,
+html[data-theme="retro-95"] .autocomplete-item,
 html[data-theme="retro-95"] select,
 html[data-theme="retro-95"] input,
 html[data-theme="retro-95"] textarea,
 html[data-theme="retro-95"] details,
+html[data-theme="retro-95"] .autocomplete-panel,
 html[data-theme="retro-95"] .editor-wrap,
 html[data-theme="retro-95"] .output-text,
 html[data-theme="retro-95"] .table-container {
@@ -550,7 +616,8 @@ html[data-theme="retro-95"] .table-container {
 }
 
 html[data-theme="retro-95"] .btn,
-html[data-theme="retro-95"] .list button {
+html[data-theme="retro-95"] .list button,
+html[data-theme="retro-95"] .autocomplete-item {
   background: #c0c0c0;
   border-width: 2px;
   border-style: solid;
@@ -560,13 +627,16 @@ html[data-theme="retro-95"] .list button {
 }
 
 html[data-theme="retro-95"] .btn:hover,
-html[data-theme="retro-95"] .list button:hover {
+html[data-theme="retro-95"] .list button:hover,
+html[data-theme="retro-95"] .autocomplete-item:hover,
+html[data-theme="retro-95"] .autocomplete-item.active {
   transform: none;
   border-color: #ffffff #3f3f3f #3f3f3f #ffffff;
 }
 
 html[data-theme="retro-95"] .btn:active,
-html[data-theme="retro-95"] .list button:active {
+html[data-theme="retro-95"] .list button:active,
+html[data-theme="retro-95"] .autocomplete-item:active {
   border-color: #3f3f3f #ffffff #ffffff #3f3f3f;
 }
 
@@ -580,6 +650,7 @@ html[data-theme="retro-95"] input,
 html[data-theme="retro-95"] textarea,
 html[data-theme="retro-95"] .output-text,
 html[data-theme="retro-95"] details,
+html[data-theme="retro-95"] .autocomplete-panel,
 html[data-theme="retro-95"] .table-container,
 html[data-theme="retro-95"] .editor-wrap {
   border-width: 2px;

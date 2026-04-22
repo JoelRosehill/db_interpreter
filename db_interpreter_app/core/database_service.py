@@ -118,6 +118,17 @@ class DatabaseService:
             self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
             return [name for (name,) in self.cursor.fetchall() if name != "sqlite_sequence"]
 
+    def get_autocomplete_metadata(self):
+        with self._lock:
+            tables = []
+
+            for table_name in self.get_tables():
+                self.cursor.execute(f"PRAGMA table_info({quote_identifier(table_name)});")
+                columns = [row[1] for row in self.cursor.fetchall()]
+                tables.append({"name": table_name, "columns": columns})
+
+            return {"tables": tables}
+
     def get_bootstrap_state(self):
         with self._lock:
             return {
@@ -125,6 +136,7 @@ class DatabaseService:
                 "databases": self.list_databases(),
                 "tables": self.get_tables(),
                 "history": list(self.query_history),
+                "autocomplete": self.get_autocomplete_metadata(),
             }
 
     def switch_database(self, name):
@@ -229,6 +241,7 @@ class DatabaseService:
                 "rowCount": row_count,
                 "history": list(self.query_history),
                 "tables": self.get_tables(),
+                "autocomplete": self.get_autocomplete_metadata(),
                 "executionMs": int((time.perf_counter() - start) * 1000),
             }
         except Exception:
@@ -315,6 +328,7 @@ class DatabaseService:
                 "rowCount": row_count,
                 "history": list(self.query_history),
                 "tables": self.get_tables(),
+                "autocomplete": self.get_autocomplete_metadata(),
                 "executionMs": int((time.perf_counter() - start) * 1000),
             }
         except Exception:
@@ -356,6 +370,7 @@ class DatabaseService:
             "rowCount": None,
             "history": list(self.query_history),
             "tables": self.get_tables(),
+            "autocomplete": self.get_autocomplete_metadata(),
             "executionMs": int((time.perf_counter() - start) * 1000),
         }
 
@@ -667,6 +682,7 @@ class DatabaseService:
             return {
                 "status": "Database reset complete.",
                 "tables": self.get_tables(),
+                "autocomplete": self.get_autocomplete_metadata(),
             }
 
     def commit(self):

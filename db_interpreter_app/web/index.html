@@ -86,6 +86,14 @@
               <textarea id="sqlEditor" spellcheck="false" placeholder="Write SQL or mock commands here..."></textarea>
             </div>
 
+            <div id="autocompletePanel" class="autocomplete-panel hidden" aria-live="polite">
+              <div class="autocomplete-meta">
+                <strong id="autocompleteLabel">Suggestions</strong>
+                <span id="autocompleteHint">Tab or tap to insert</span>
+              </div>
+              <div id="autocompleteList" class="autocomplete-list" role="listbox" aria-label="Autocomplete suggestions"></div>
+            </div>
+
             <p id="statusBar" class="status">Ready.</p>
           </section>
 

@@ -311,20 +311,20 @@ Create new .db files directly from the interface.
 
 ### Autocomplete Feature
 
-The inline autocomplete helps you write SQL faster:
+The web editor autocomplete now uses the active database schema and recent query history to suggest smarter completions:
 
-1. **Type Partially:** Type `INSE` and ghost text shows `RT`
-2. **Accept:** Press `Tab` to accept the suggestion
-3. **Cycle:** Press `Tab` again to see next option
-4. **Reject:** Type more letters or press `Backspace`
+1. **Type Partially:** Type `SELE`, `FROM us`, or `u.` to get matching keywords, tables, and columns
+2. **Stay Context-Aware:** After `FROM` and `JOIN` it suggests tables; after `SELECT`, `WHERE`, and `ORDER BY` it suggests columns
+3. **Use It Across Modes:** SQL, NoSQL, and PyMySQL each get mode-specific suggestions in the browser editor
+4. **Tap or Click on Web:** Suggestions are clickable, so the feature also works well without a hardware keyboard
 
 ### Key Bindings
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Accept autocomplete / Cycle options |
-| `Backspace` | Reject autocomplete |
-| `Space` | Clear current suggestions |
+| `Tab` | Accept highlighted suggestion |
+| `Shift+Tab` / `↑` / `↓` | Move through suggestions |
+| `Ctrl+Space` / `Cmd+Space` | Re-open suggestions |
 | `Escape` | Cancel autocomplete |
 | `Ctrl+A` | Select all text |
 | `Ctrl+C` | Copy selected text |
